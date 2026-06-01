@@ -37,8 +37,9 @@ async function initDb() {
 // ============================================================
 // FILE STORAGE
 // ============================================================
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
-const OUTPUT_DIR = path.join(__dirname, 'outputs');
+const DATA_DIR   = process.env.DATA_DIR || __dirname;  // mount a Railway volume at /data and set DATA_DIR=/data
+const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
+const OUTPUT_DIR = path.join(DATA_DIR, 'outputs');
 [UPLOAD_DIR, OUTPUT_DIR].forEach(d => fs.mkdirSync(d, { recursive: true }));
 
 const storage = multer.diskStorage({
