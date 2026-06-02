@@ -103,10 +103,14 @@ app.post('/upload', upload.fields([
     await new Promise((resolve, reject) => {
       ffmpeg()
         .input(videoFile.path)
+        .inputOptions(['-r 10'])          // ESP32 AVI timestamps are unreliable; force 10fps so FFmpeg builds a valid timeline
         .input(audioFile.path)
         .outputOptions([
           '-c:v libx264',
+          '-pix_fmt yuv420p',             // browsers need 4:2:0; MJPEG decodes to yuvj422p, which renders as a black frame
+          '-r 10',                        // constant output framerate
           '-c:a aac',
+          '-b:a 128k',
           '-shortest',
           '-movflags +faststart'
         ])
