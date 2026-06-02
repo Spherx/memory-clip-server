@@ -83,7 +83,7 @@ app.post('/upload', upload.fields([
     }
 
     // Parse GPS JSON
-    let gpsData = { lat: null, lng: null, locked: false, satellites: 0, timestamp: null };
+    let gpsData = { lat: null, lng: null, locked: false, satellites: 0, timestamp: null, fps: 10 };
     if (gpsFile) {
       try {
         const raw = fs.readFileSync(gpsFile.path, 'utf8');
@@ -93,22 +93,28 @@ app.post('/upload', upload.fields([
       }
     }
 
+    // Playback rate measured on the device (frames / audio-seconds). Clamp to something sane.
+    let fps = Number(gpsData.fps);
+    if (!isFinite(fps) || fps < 1) fps = 10;
+    if (fps > 30) fps = 30;
+    const fpsStr = fps.toFixed(2);
+
     // Output MP4 filename
     const outName = Date.now() + '_clip.mp4';
     const outPath = path.join(OUTPUT_DIR, outName);
 
-    console.log(`Processing: ${videoFile.originalname} + ${audioFile.originalname}`);
+    console.log(`Processing: ${videoFile.originalname} + ${audioFile.originalname} @ ${fpsStr} fps`);
 
     // Merge video + audio with FFmpeg
     await new Promise((resolve, reject) => {
       ffmpeg()
         .input(videoFile.path)
-        .inputOptions(['-r 10'])          // ESP32 AVI timestamps are unreliable; force 10fps so FFmpeg builds a valid timeline
+        .inputOptions([`-r ${fpsStr}`])   // device-measured rate; makes the AVI frames span exactly the audio duration
         .input(audioFile.path)
         .outputOptions([
           '-c:v libx264',
           '-pix_fmt yuv420p',             // browsers need 4:2:0; MJPEG decodes to yuvj422p, which renders as a black frame
-          '-r 10',                        // constant output framerate
+          `-r ${fpsStr}`,                 // constant output framerate matching the source timing
           '-c:a aac',
           '-b:a 128k',
           '-shortest',
