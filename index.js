@@ -5,6 +5,8 @@ const path    = require('path');
 const fs      = require('fs');
 const { Pool } = require('pg');
 const ffmpeg  = require('fluent-ffmpeg');
+const ffmpegPath = require('ffmpeg-static');
+ffmpeg.setFfmpegPath(ffmpegPath);   // use bundled binary, don't rely on system PATH
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
