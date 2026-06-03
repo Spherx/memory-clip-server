@@ -59,13 +59,10 @@ const upload = multer({ storage, limits: { fileSize: 500 * 1024 * 1024 } }); // 
 app.use(cors());
 app.use(express.json());
 app.use('/videos', express.static(OUTPUT_DIR));
+app.use(express.static(path.join(__dirname, 'public')));  // serves public/index.html at /
 
-// ============================================================
-// ROUTES
-// ============================================================
-
-// Health check
-app.get('/', (req, res) => res.json({ status: 'Memory Clip server running' }));
+// Health check (moved off root so the website can live there)
+app.get('/health', (req, res) => res.json({ status: 'Memory Clip server running' }));
 
 // Upload endpoint — receives video, audio, gps from ESP32
 app.post('/upload', upload.fields([

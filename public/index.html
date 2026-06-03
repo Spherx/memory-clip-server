@@ -1,0 +1,1137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Memory Clip</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0b0b0d;
+  --surface: #131315;
+  --surface2: #1a1a1d;
+  --surface3: #202024;
+  --border: rgba(255,255,255,0.07);
+  --border2: rgba(255,255,255,0.13);
+  --text: #efefef;
+  --muted: #777;
+  --muted2: #555;
+  --accent: #c8f060;
+  --accent-dim: rgba(200,240,96,0.1);
+  --accent-border: rgba(200,240,96,0.3);
+  --blue: #5a9fd4;
+  --red: #e24b4a;
+}
+
+html, body { height: 100%; }
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* ── TOPBAR ── */
+.topbar {
+  height: 56px;
+  border-bottom: 0.5px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 28px;
+  justify-content: space-between;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 100;
+}
+.brand { font-size: 18px; font-weight: 500; letter-spacing: -0.3px; }
+.brand span { color: var(--accent); }
+.topbar-right { display: flex; align-items: center; gap: 20px; }
+.count { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); letter-spacing: 0.08em; }
+.new-album-btn {
+  font-size: 12px; color: var(--accent); background: none;
+  border: 0.5px solid var(--accent-border); border-radius: 20px;
+  padding: 5px 14px; cursor: pointer; transition: background 0.15s;
+  font-family: 'DM Sans', sans-serif;
+}
+.new-album-btn:hover { background: var(--accent-dim); }
+
+/* ── LOADING / ERROR ── */
+.state-overlay {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  flex-direction: column; gap: 14px; color: var(--muted2);
+}
+.spinner {
+  width: 28px; height: 28px;
+  border: 2px solid var(--border2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.state-msg { font-size: 13px; }
+.retry-btn {
+  font-size: 12px; color: var(--accent); background: none;
+  border: 0.5px solid var(--accent-border); border-radius: 20px;
+  padding: 5px 14px; cursor: pointer; font-family: 'DM Sans', sans-serif;
+}
+
+/* ══════════════════════════════
+   DESKTOP LAYOUT (≥768px)
+══════════════════════════════ */
+.desktop-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr 340px;
+  flex: 1;
+  height: calc(100vh - 56px);
+}
+
+/* Sidebar */
+.sidebar {
+  border-right: 0.5px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.sidebar-top {
+  padding: 16px 16px 10px;
+  border-bottom: 0.5px solid var(--border);
+  flex-shrink: 0;
+}
+.sidebar-label {
+  font-size: 10px; font-family: 'DM Mono', monospace;
+  letter-spacing: 0.12em; color: var(--muted2); margin-bottom: 10px;
+}
+.album-tabs-v { display: flex; flex-direction: column; gap: 2px; }
+.v-tab {
+  padding: 7px 12px; border-radius: 8px; font-size: 13px;
+  color: var(--muted); cursor: pointer;
+  display: flex; align-items: center; justify-content: space-between;
+  transition: background 0.15s, color 0.15s;
+  border-left: 2px solid transparent;
+}
+.v-tab:hover { background: var(--surface2); color: var(--text); }
+.v-tab.active { background: var(--surface2); color: var(--text); border-left-color: var(--accent); padding-left: 10px; }
+.v-tab-del { opacity: 0; font-size: 16px; line-height: 1; color: var(--muted); }
+.v-tab:hover .v-tab-del { opacity: 0.6; }
+.sidebar-list { flex: 1; overflow-y: auto; padding: 10px 0; }
+.mem-item {
+  padding: 10px 16px; cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+  display: flex; gap: 10px; align-items: center;
+}
+.mem-item:hover { background: var(--surface2); }
+.mem-item.active { background: var(--surface2); border-left-color: var(--accent); }
+.mem-thumb {
+  width: 46px; height: 34px; border-radius: 6px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface3); overflow: hidden; position: relative;
+}
+.mem-thumb video { width: 100%; height: 100%; object-fit: cover; }
+.mem-thumb-play { width:0; height:0; border-style:solid; border-width:5px 0 5px 9px; border-color:transparent transparent transparent rgba(255,255,255,0.7); position: absolute; }
+.mem-info { flex: 1; min-width: 0; }
+.mem-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
+.mem-date { font-size: 11px; color: var(--muted); }
+
+/* Main panel */
+.main-panel {
+  overflow-y: auto;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+}
+.placeholder-main {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  flex-direction: column; gap: 12px; color: var(--muted2); height: 100%;
+}
+.ph-icon { font-size: 40px; opacity: 0.25; }
+.ph-text { font-size: 14px; }
+
+/* Video area */
+.video-area {
+  width: 100%; aspect-ratio: 16/9; background: #000;
+  position: relative; overflow: hidden; flex-shrink: 0;
+}
+.video-area video {
+  width: 100%; height: 100%; display: block; object-fit: contain;
+}
+.big-play-overlay {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: opacity 0.2s;
+  background: linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.4));
+}
+.big-play-btn {
+  width: 72px; height: 72px; border-radius: 50%;
+  background: rgba(200,240,96,0.1); border: 2px solid rgba(200,240,96,0.55);
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.2s;
+}
+.big-play-btn:hover { background: rgba(200,240,96,0.2); }
+.play-tri { width:0; height:0; border-style:solid; border-width:14px 0 14px 26px; border-color:transparent transparent transparent var(--accent); margin-left:5px; }
+
+/* Controls */
+.controls {
+  background: #090909; padding: 12px 20px 14px; flex-shrink: 0;
+}
+.prog-row {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 10px;
+}
+.prog-bar {
+  flex: 1; height: 4px; background: rgba(255,255,255,0.12);
+  border-radius: 2px; cursor: pointer; position: relative;
+}
+.prog-bar:hover { height: 5px; }
+.prog-fill {
+  height: 100%; background: var(--accent); border-radius: 2px;
+  width: 0%; transition: width 0.25s linear; position: relative;
+}
+.prog-fill::after {
+  content:''; position:absolute; right:-5px; top:-4px;
+  width:10px; height:10px; border-radius:50%; background:var(--accent);
+  opacity:0; transition:opacity 0.15s;
+}
+.prog-bar:hover .prog-fill::after { opacity: 1; }
+.time-txt { font-size: 12px; font-family: 'DM Mono', monospace; color: rgba(255,255,255,0.4); min-width: 36px; }
+.ctrl-row { display: flex; align-items: center; gap: 14px; }
+.ctrl-btn { background: none; border: none; cursor: pointer; padding: 5px; display: flex; align-items: center; color: rgba(255,255,255,0.7); }
+.ctrl-btn:hover { color: var(--accent); }
+.sm-play-icon { width:0; height:0; border-style:solid; border-width:8px 0 8px 14px; border-color:transparent transparent transparent var(--accent); }
+.sm-pause { display:flex; gap:3px; }
+.sm-pause span { width:3px; height:16px; background:var(--accent); border-radius:1px; }
+.vol-group { display: flex; align-items: center; gap: 8px; }
+.vol-icon { font-size: 14px; }
+.vol-slider { width: 80px; accent-color: var(--accent); cursor: pointer; }
+.fullscreen-btn { margin-left: auto; font-size: 18px; opacity: 0.35; cursor: pointer; background: none; border: none; color: var(--text); }
+.fullscreen-btn:hover { opacity: 0.7; }
+
+/* Memory details */
+.mem-details { padding: 20px 24px; flex: 1; }
+.detail-title-row { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+.mem-title-lg { font-size: 20px; font-weight: 500; letter-spacing: -0.3px; }
+.rename-btn-sm {
+  font-size: 12px; color: var(--muted); background: none;
+  border: 0.5px solid var(--border2); border-radius: 6px; padding: 4px 10px; cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+}
+.rename-btn-sm:hover { color: var(--accent); border-color: var(--accent-border); }
+.mem-datetime { font-size: 13px; color: var(--muted); margin-bottom: 14px; }
+.detail-label { font-size: 10px; font-family: 'DM Mono', monospace; letter-spacing: 0.1em; color: var(--muted2); margin-bottom: 8px; }
+.album-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.album-chip {
+  font-size: 12px; padding: 4px 12px; border-radius: 20px;
+  border: 0.5px solid var(--border2); color: var(--muted);
+  background: var(--surface2); cursor: pointer; transition: all 0.15s;
+  font-family: 'DM Sans', sans-serif;
+}
+.album-chip.selected { background: var(--accent-dim); border-color: var(--accent-border); color: var(--accent); }
+
+/* Right panel */
+.right-panel {
+  border-left: 0.5px solid var(--border);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.right-placeholder { flex: 1; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; color: var(--muted2); }
+.map-section { padding: 18px 18px 0; }
+.panel-label { font-size: 10px; font-family: 'DM Mono', monospace; letter-spacing: 0.12em; color: var(--muted2); margin-bottom: 12px; }
+.map-box {
+  width: 100%; border-radius: 12px; overflow: hidden;
+  border: 0.5px solid var(--border); margin-bottom: 12px; aspect-ratio: 4/3;
+}
+.map-no-gps {
+  width: 100%; aspect-ratio: 4/3; background: var(--surface2);
+  border-radius: 12px; border: 0.5px solid var(--border);
+  margin-bottom: 12px; display: flex; align-items: center;
+  justify-content: center; flex-direction: column; gap: 8px;
+}
+.map-no-gps-icon { font-size: 28px; opacity: 0.25; }
+.map-no-gps-txt { font-size: 12px; color: var(--muted2); font-family: 'DM Mono', monospace; letter-spacing: 0.06em; }
+.coords-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 18px; }
+.coord-card { background: var(--surface2); border: 0.5px solid var(--border); border-radius: 10px; padding: 9px 12px; }
+.coord-card p:first-child { font-size: 10px; font-family: 'DM Mono', monospace; color: var(--muted); margin-bottom: 3px; letter-spacing: 0.05em; }
+.coord-card p:last-child { font-size: 13px; font-family: 'DM Mono', monospace; color: var(--blue); }
+.all-clips { padding: 0 18px 18px; }
+.mini-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.mini-card {
+  aspect-ratio: 4/3; border-radius: 8px; cursor: pointer; overflow: hidden;
+  position: relative; border: 1.5px solid transparent;
+  display: flex; align-items: center; justify-content: center;
+  transition: border-color 0.15s; background: var(--surface3);
+}
+.mini-card video { width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0; }
+.mini-card.active { border-color: var(--accent); }
+.mini-card:hover { border-color: var(--border2); }
+.mini-play { width:0; height:0; border-style:solid; border-width:5px 0 5px 9px; border-color:transparent transparent transparent rgba(255,255,255,0.8); z-index:1; position: relative; }
+
+/* ══════════════════════════════
+   MOBILE LAYOUT (<768px)
+══════════════════════════════ */
+.mobile-layout { display: none; flex-direction: column; flex: 1; }
+
+.mobile-topbar-sub { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
+
+.album-tabs-h {
+  display: flex; gap: 8px; padding: 14px 20px;
+  overflow-x: auto; border-bottom: 0.5px solid var(--border);
+}
+.album-tabs-h::-webkit-scrollbar { display: none; }
+.h-tab {
+  flex-shrink: 0; font-size: 12px; padding: 5px 14px;
+  border-radius: 20px; border: 0.5px solid var(--border2);
+  background: var(--surface); color: var(--muted); cursor: pointer;
+  transition: all 0.15s; white-space: nowrap;
+  display: flex; align-items: center; gap: 6px;
+  font-family: 'DM Sans', sans-serif;
+}
+.h-tab.active { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 500; }
+.h-tab-del { font-size: 14px; opacity: 0.5; line-height: 1; }
+.h-tab.active .h-tab-del { opacity: 0.6; }
+
+.feed { padding: 12px; display: flex; flex-direction: column; gap: 10px; padding-bottom: 60px; }
+.memory-card {
+  background: var(--surface); border-radius: 16px;
+  border: 0.5px solid var(--border); overflow: hidden; cursor: pointer;
+  transition: border-color 0.2s;
+}
+.memory-card:hover { border-color: var(--border2); }
+.card-thumb {
+  width: 100%; height: 140px; position: relative;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; background: var(--surface3);
+}
+.card-thumb video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.thumb-overlay { position: absolute; inset: 0; background: linear-gradient(to bottom, transparent 40%, rgba(0,0,0,0.6)); z-index: 1; }
+.thumb-play-btn {
+  width: 48px; height: 48px; border-radius: 50%;
+  background: rgba(200,240,96,0.12); border: 1.5px solid rgba(200,240,96,0.5);
+  display: flex; align-items: center; justify-content: center; z-index: 2;
+}
+.thumb-play-tri { width:0; height:0; border-style:solid; border-width:9px 0 9px 16px; border-color:transparent transparent transparent var(--accent); margin-left:3px; }
+.dur-tag { position: absolute; bottom: 10px; right: 12px; font-size: 10px; font-family: 'DM Mono', monospace; color: rgba(255,255,255,0.6); z-index: 2; }
+.card-info { padding: 10px 14px 12px; }
+.card-title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
+.card-title { font-size: 14px; font-weight: 500; color: var(--text); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rename-btn-inline { font-size: 11px; color: var(--muted); background: none; border: none; cursor: pointer; padding: 2px 6px; flex-shrink: 0; font-family: 'DM Sans', sans-serif; }
+.rename-btn-inline:hover { color: var(--accent); }
+.card-meta { display: flex; justify-content: space-between; align-items: center; }
+.card-time { font-size: 12px; color: var(--muted); }
+.card-coords { font-size: 11px; font-family: 'DM Mono', monospace; color: var(--blue); }
+.card-coords-null { font-size: 11px; font-family: 'DM Mono', monospace; color: var(--muted2); }
+
+/* Mobile modal */
+.mob-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.75); z-index: 200;
+  align-items: flex-end; justify-content: center;
+  backdrop-filter: blur(4px);
+}
+.mob-overlay.open { display: flex; }
+.mob-modal {
+  background: var(--surface); border: 0.5px solid var(--border2);
+  border-radius: 24px 24px 0 0; width: 100%; max-width: 420px;
+  max-height: 93vh; overflow-y: auto; padding-bottom: 32px;
+}
+.handle { width: 36px; height: 4px; background: var(--border2); border-radius: 2px; margin: 14px auto 0; }
+.mob-video-screen {
+  width: 100%; height: 210px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; position: relative; overflow: hidden;
+  background: #000;
+}
+.mob-video-screen video { width: 100%; height: 100%; object-fit: contain; }
+.mob-big-play {
+  position: absolute;
+  width: 64px; height: 64px; border-radius: 50%;
+  background: rgba(200,240,96,0.12); border: 2px solid rgba(200,240,96,0.6);
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity 0.2s; z-index: 2;
+}
+.mob-big-play-tri { width:0; height:0; border-style:solid; border-width:13px 0 13px 23px; border-color:transparent transparent transparent var(--accent); margin-left:5px; }
+.mob-controls { background: #090909; padding: 10px 14px 12px; }
+.mob-prog-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.mob-prog-bar { flex: 1; height: 3px; background: rgba(255,255,255,0.15); border-radius: 2px; cursor: pointer; }
+.mob-prog-fill { height: 100%; background: var(--accent); border-radius: 2px; width: 0%; transition: width 0.25s linear; position: relative; }
+.mob-prog-fill::after { content:''; position:absolute; right:-4px; top:-3px; width:9px; height:9px; border-radius:50%; background:var(--accent); }
+.mob-time-txt { font-size: 11px; font-family: 'DM Mono', monospace; color: rgba(255,255,255,0.45); min-width: 30px; }
+.mob-ctrl-row { display: flex; align-items: center; gap: 12px; }
+.mob-ctrl-btn { background: none; border: none; cursor: pointer; padding: 4px; display: flex; align-items: center; color: rgba(255,255,255,0.7); }
+.mob-sm-play { width:0; height:0; border-style:solid; border-width:7px 0 7px 13px; border-color:transparent transparent transparent var(--accent); }
+.mob-vol-slider { width: 55px; accent-color: var(--accent); cursor: pointer; }
+.mob-body { padding: 16px 20px 0; }
+.mob-title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.mob-title { font-size: 17px; font-weight: 500; color: var(--text); flex: 1; }
+.mob-rename-btn { font-size: 12px; color: var(--muted); background: none; border: 0.5px solid var(--border2); border-radius: 6px; padding: 4px 8px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+.mob-rename-btn:hover { color: var(--accent); border-color: var(--accent-border); }
+.mob-dt { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.mob-album-row { margin-bottom: 16px; }
+.mob-album-label { font-size: 11px; font-family: 'DM Mono', monospace; color: var(--muted); letter-spacing: 0.06em; margin-bottom: 6px; }
+.mob-album-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.mob-album-chip { font-size: 11px; padding: 3px 10px; border-radius: 20px; border: 0.5px solid var(--border2); color: var(--muted); background: var(--surface2); cursor: pointer; font-family: 'DM Sans', sans-serif; }
+.mob-album-chip.selected { background: var(--accent-dim); border-color: var(--accent-border); color: var(--accent); }
+.mob-sec-label { font-size: 10px; font-family: 'DM Mono', monospace; letter-spacing: 0.1em; color: var(--muted2); margin-bottom: 10px; }
+.mob-map-box { width: 100%; height: 165px; border-radius: 12px; border: 0.5px solid var(--border); overflow: hidden; margin-bottom: 10px; }
+.mob-map-no-gps { width: 100%; height: 165px; background: var(--surface2); border-radius: 12px; border: 0.5px solid var(--border); margin-bottom: 10px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; }
+.mob-coords-row { display: flex; gap: 8px; margin-bottom: 20px; }
+.mob-coord-pill { flex: 1; background: var(--surface2); border: 0.5px solid var(--border); border-radius: 10px; padding: 9px 12px; }
+.mob-coord-pill p:first-child { font-size: 10px; font-family: 'DM Mono', monospace; color: var(--muted); margin-bottom: 3px; letter-spacing: 0.05em; }
+.mob-coord-pill p:last-child { font-size: 13px; font-family: 'DM Mono', monospace; color: var(--blue); }
+.mob-close-btn {
+  display: block; width: calc(100% - 40px); margin: 0 20px;
+  padding: 12px; border-radius: 10px; background: var(--surface2);
+  border: 0.5px solid var(--border2); font-family: 'DM Sans', sans-serif;
+  font-size: 14px; color: var(--muted); cursor: pointer;
+}
+.mob-close-btn:hover { color: var(--text); }
+
+/* ── POPUP OVERLAYS ── */
+.popup-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6); z-index: 400;
+  align-items: center; justify-content: center;
+  backdrop-filter: blur(4px);
+}
+.popup-overlay.open { display: flex; }
+.popup-box {
+  background: var(--surface); border: 0.5px solid var(--border2);
+  border-radius: 16px; padding: 24px 22px; width: 90%; max-width: 380px;
+}
+.popup-box h3 { font-size: 16px; font-weight: 500; margin-bottom: 14px; }
+.popup-input {
+  width: 100%; background: var(--surface2); border: 0.5px solid var(--border2);
+  border-radius: 8px; padding: 10px 14px; font-family: 'DM Sans', sans-serif;
+  font-size: 14px; color: var(--text); outline: none; margin-bottom: 14px;
+}
+.popup-input:focus { border-color: var(--accent-border); }
+.popup-actions { display: flex; gap: 8px; }
+.popup-cancel {
+  flex: 1; padding: 10px; border-radius: 8px; background: var(--surface2);
+  border: 0.5px solid var(--border2); font-family: 'DM Sans', sans-serif;
+  font-size: 14px; color: var(--muted); cursor: pointer;
+}
+.popup-save {
+  flex: 1; padding: 10px; border-radius: 8px; background: var(--accent);
+  border: none; font-family: 'DM Sans', sans-serif; font-size: 14px;
+  color: #000; font-weight: 500; cursor: pointer;
+}
+.popup-save:hover { background: #d4f472; }
+
+/* ── LEAFLET DARK TILE OVERRIDE ── */
+.leaflet-container { background: #1a2a1a !important; }
+.leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.7) saturate(0.8); }
+
+/* ── RESPONSIVE BREAKPOINT ── */
+@media (max-width: 767px) {
+  .desktop-layout { display: none !important; }
+  .mobile-layout { display: flex !important; }
+  .topbar { padding: 0 20px; height: auto; min-height: 56px; }
+  .topbar .brand { font-size: 20px; }
+  .topbar-right .count { display: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="brand">memory<span>.</span>clip</div>
+  <div class="topbar-right">
+    <span class="count" id="top-count">— MEMORIES</span>
+    <button class="new-album-btn" onclick="openNewAlbum()">+ New Album</button>
+  </div>
+</div>
+
+<!-- LOADING STATE -->
+<div class="state-overlay" id="loading-state">
+  <div class="spinner"></div>
+  <p class="state-msg">Loading memories…</p>
+</div>
+
+<!-- ERROR STATE -->
+<div class="state-overlay" id="error-state" style="display:none">
+  <div class="ph-icon" style="font-size:32px;opacity:0.25">⚠</div>
+  <p class="state-msg" id="error-msg">Could not load memories.</p>
+  <button class="retry-btn" onclick="loadMemories()">Retry</button>
+</div>
+
+<!-- ══════════ DESKTOP ══════════ -->
+<div class="desktop-layout" id="desktop-layout" style="display:none">
+  <div class="sidebar">
+    <div class="sidebar-top">
+      <p class="sidebar-label">ALBUMS</p>
+      <div class="album-tabs-v" id="d-album-tabs"></div>
+    </div>
+    <div class="sidebar-list" id="d-sidebar-list"></div>
+  </div>
+  <div class="main-panel" id="d-main-panel">
+    <div class="placeholder-main"><div class="ph-icon">▶</div><p class="ph-text">Select a memory to play</p></div>
+  </div>
+  <div class="right-panel" id="d-right-panel">
+    <div class="right-placeholder"><div class="ph-icon">📍</div><p class="ph-text">Location appears here</p></div>
+  </div>
+</div>
+
+<!-- ══════════ MOBILE ══════════ -->
+<div class="mobile-layout" id="mobile-layout" style="display:none">
+  <div class="album-tabs-h" id="m-album-tabs"></div>
+  <div class="feed" id="m-feed"></div>
+</div>
+
+<!-- MOBILE MODAL -->
+<div class="mob-overlay" id="mob-modal">
+  <div class="mob-modal">
+    <div class="handle"></div>
+    <div class="mob-video-screen" id="mob-video-screen" onclick="mobTogglePlay()">
+      <video id="mob-video" preload="metadata" playsinline></video>
+      <div class="mob-big-play" id="mob-big-play"><div class="mob-big-play-tri"></div></div>
+    </div>
+    <div class="mob-controls">
+      <div class="mob-prog-row">
+        <span class="mob-time-txt" id="mob-time-cur">0:00</span>
+        <div class="mob-prog-bar" id="mob-prog-bar" onclick="mobScrub(event)"><div class="mob-prog-fill" id="mob-prog-fill"></div></div>
+        <span class="mob-time-txt" id="mob-time-dur">0:25</span>
+      </div>
+      <div class="mob-ctrl-row">
+        <button class="mob-ctrl-btn" onclick="mobTogglePlay()"><div id="mob-pp-icon"><div class="mob-sm-play"></div></div></button>
+        <div class="vol-group"><span class="vol-icon">🔊</span><input type="range" class="mob-vol-slider" min="0" max="1" step="0.05" value="0.8" oninput="document.getElementById('mob-video').volume=this.value"></div>
+      </div>
+    </div>
+    <div class="mob-body">
+      <div class="mob-title-row">
+        <p class="mob-title" id="mob-title"></p>
+        <button class="mob-rename-btn" onclick="openRenameFromModal()">Rename</button>
+      </div>
+      <p class="mob-dt" id="mob-dt"></p>
+      <div class="mob-album-row">
+        <p class="mob-album-label">ALBUM</p>
+        <div class="mob-album-chips" id="mob-album-chips"></div>
+      </div>
+      <p class="mob-sec-label">LOCATION</p>
+      <div id="mob-map-container"></div>
+      <div class="mob-coords-row">
+        <div class="mob-coord-pill"><p>LATITUDE</p><p id="mob-lat">—</p></div>
+        <div class="mob-coord-pill"><p>LONGITUDE</p><p id="mob-lng">—</p></div>
+      </div>
+      <button class="mob-close-btn" onclick="closeMobModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- RENAME POPUP -->
+<div class="popup-overlay" id="rename-overlay">
+  <div class="popup-box">
+    <h3>Rename Memory</h3>
+    <input class="popup-input" id="rename-input" placeholder="Enter a name…" maxlength="60">
+    <div class="popup-actions">
+      <button class="popup-cancel" onclick="closeRename()">Cancel</button>
+      <button class="popup-save" onclick="saveRename()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- NEW ALBUM POPUP -->
+<div class="popup-overlay" id="album-overlay">
+  <div class="popup-box">
+    <h3>New Album</h3>
+    <input class="popup-input" id="album-input" placeholder="e.g. Roskilde 2026" maxlength="40">
+    <div class="popup-actions">
+      <button class="popup-cancel" onclick="closeNewAlbum()">Cancel</button>
+      <button class="popup-save" onclick="saveNewAlbum()">Create</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════
+// CONFIG
+// ══════════════════════════════════════════════════════
+const API = 'https://respectful-tranquility-production-11c5.up.railway.app';
+
+// ══════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════
+let memories = [];          // raw from API, augmented with .name, .album
+let albums = [];            // user-created album names
+let activeAlbum = 'All';
+let activeMemory = null;    // desktop selected memory
+let mobMemory = null;       // mobile open memory
+
+// Persist custom names + albums in localStorage
+function saveLocal() {
+  const names = {};
+  const albumMap = {};
+  memories.forEach(m => {
+    if (m._customName) names[m.id] = m._customName;
+    if (m.album) albumMap[m.id] = m.album;
+  });
+  localStorage.setItem('mc_names', JSON.stringify(names));
+  localStorage.setItem('mc_albums_map', JSON.stringify(albumMap));
+  localStorage.setItem('mc_albums_list', JSON.stringify(albums));
+}
+
+function loadLocal() {
+  try {
+    const names = JSON.parse(localStorage.getItem('mc_names') || '{}');
+    const albumMap = JSON.parse(localStorage.getItem('mc_albums_map') || '{}');
+    albums = JSON.parse(localStorage.getItem('mc_albums_list') || '[]');
+    memories.forEach(m => {
+      if (names[m.id]) { m._customName = names[m.id]; m.name = names[m.id]; }
+      if (albumMap[m.id]) m.album = albumMap[m.id];
+    });
+  } catch(e) {}
+}
+
+// ══════════════════════════════════════════════════════
+// DATA
+// ══════════════════════════════════════════════════════
+async function loadMemories() {
+  document.getElementById('loading-state').style.display = 'flex';
+  document.getElementById('error-state').style.display = 'none';
+  document.getElementById('desktop-layout').style.display = 'none';
+  document.getElementById('mobile-layout').style.display = 'none';
+
+  try {
+    const res = await fetch(`${API}/memories`);
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const raw = await res.json();
+
+    memories = raw.map(m => ({
+      ...m,
+      name: `Memory ${m.id}`,
+      album: null,
+      videoUrl: API + m.video_url,
+    }));
+
+    loadLocal();
+    updateCount();
+    document.getElementById('loading-state').style.display = 'none';
+
+    const isMobile = window.innerWidth < 768;
+    if (isMobile) {
+      document.getElementById('mobile-layout').style.display = 'flex';
+      renderMobileTabs();
+      renderFeed();
+    } else {
+      document.getElementById('desktop-layout').style.display = 'grid';
+      renderDesktopAlbumTabs();
+      renderSidebar();
+    }
+  } catch(err) {
+    document.getElementById('loading-state').style.display = 'none';
+    document.getElementById('error-state').style.display = 'flex';
+    document.getElementById('error-msg').textContent = 'Could not load memories: ' + err.message;
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════════════════
+function fmt(s) {
+  if (!s || isNaN(s)) return '0:00';
+  return Math.floor(s/60) + ':' + String(Math.floor(s%60)).padStart(2,'0');
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short', year:'numeric' });
+}
+
+function fmtTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' });
+}
+
+function visibleMemories() {
+  return activeAlbum === 'All' ? memories : memories.filter(m => m.album === activeAlbum);
+}
+
+function updateCount() {
+  const vis = visibleMemories();
+  const txt = vis.length + ' MEMOR' + (vis.length === 1 ? 'Y' : 'IES');
+  document.getElementById('top-count').textContent = txt;
+  const dc = document.getElementById('d-count');
+  if (dc) dc.textContent = txt;
+}
+
+// ══════════════════════════════════════════════════════
+// LEAFLET MAP
+// ══════════════════════════════════════════════════════
+let leafletMaps = {}; // keyed by container id
+
+function buildLeafletMap(containerId, lat, lng) {
+  // Destroy existing instance if any
+  if (leafletMaps[containerId]) {
+    leafletMaps[containerId].remove();
+    delete leafletMaps[containerId];
+  }
+  const el = document.getElementById(containerId);
+  if (!el) return;
+
+  const map = L.map(containerId, {
+    center: [lat, lng],
+    zoom: 16,
+    zoomControl: false,
+    attributionControl: false,
+    scrollWheelZoom: false,
+  });
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+  }).addTo(map);
+
+  // Custom marker
+  const icon = L.divIcon({
+    html: `<div style="width:20px;height:20px;background:#e24b4a;border:2.5px solid #fff;border-radius:50%;box-shadow:0 0 0 6px rgba(226,75,74,0.2)"></div>`,
+    iconSize: [20,20], iconAnchor: [10,10], className: ''
+  });
+  L.marker([lat, lng], { icon }).addTo(map);
+
+  leafletMaps[containerId] = map;
+
+  // Force re-render after DOM is painted
+  setTimeout(() => map.invalidateSize(), 50);
+}
+
+function noGpsHtml(mobile = false) {
+  return `<div class="${mobile ? 'mob-map-no-gps' : 'map-no-gps'}">
+    <div class="${mobile ? '' : 'map-no-gps-icon'}" style="font-size:28px;opacity:0.2">📡</div>
+    <div class="${mobile ? 'map-no-gps-txt' : 'map-no-gps-txt'}">NO GPS FIX</div>
+  </div>`;
+}
+
+// ══════════════════════════════════════════════════════
+// DESKTOP
+// ══════════════════════════════════════════════════════
+function renderDesktopAlbumTabs() {
+  const el = document.getElementById('d-album-tabs');
+  el.innerHTML = '';
+  const all = document.createElement('div');
+  all.className = 'v-tab' + (activeAlbum === 'All' ? ' active' : '');
+  all.innerHTML = '<span>All Memories</span>';
+  all.onclick = () => { activeAlbum = 'All'; renderDesktopAlbumTabs(); renderSidebar(); updateCount(); };
+  el.appendChild(all);
+  albums.forEach(a => {
+    const t = document.createElement('div');
+    t.className = 'v-tab' + (activeAlbum === a ? ' active' : '');
+    t.innerHTML = `<span>${a}</span><span class="v-tab-del" onclick="deleteAlbum(event,'${a}')">×</span>`;
+    t.onclick = (e) => { if (e.target.classList.contains('v-tab-del')) return; activeAlbum = a; renderDesktopAlbumTabs(); renderSidebar(); updateCount(); };
+    el.appendChild(t);
+  });
+}
+
+function renderSidebar() {
+  const list = document.getElementById('d-sidebar-list');
+  const vis = visibleMemories();
+  updateCount();
+  list.innerHTML = '';
+  vis.forEach(m => {
+    const item = document.createElement('div');
+    item.className = 'mem-item' + (activeMemory && activeMemory.id === m.id ? ' active' : '');
+    item.dataset.id = m.id;
+    item.onclick = () => selectMemory(m);
+    item.innerHTML = `
+      <div class="mem-thumb">
+        <video src="${m.videoUrl}" preload="none" muted></video>
+        <div class="mem-thumb-play"></div>
+      </div>
+      <div class="mem-info">
+        <p class="mem-name">${m.name}</p>
+        <p class="mem-date">${fmtDate(m.created_at)} · ${fmtTime(m.created_at)}</p>
+      </div>`;
+    list.appendChild(item);
+  });
+}
+
+let deskVideoListeners = [];
+function selectMemory(m) {
+  activeMemory = m;
+  // Update sidebar active state
+  document.querySelectorAll('.mem-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.id == m.id);
+  });
+
+  const main = document.getElementById('d-main-panel');
+  main.innerHTML = `
+    <div class="video-area">
+      <video id="d-video" src="${m.videoUrl}" preload="auto" playsinline></video>
+      <div class="big-play-overlay" id="d-big-play-overlay" onclick="deskTogglePlay()">
+        <div class="big-play-btn"><div class="play-tri"></div></div>
+      </div>
+    </div>
+    <div class="controls">
+      <div class="prog-row">
+        <span class="time-txt" id="d-time-cur">0:00</span>
+        <div class="prog-bar" id="d-prog-bar" onclick="deskScrub(event)"><div class="prog-fill" id="d-prog-fill"></div></div>
+        <span class="time-txt" id="d-time-dur">—</span>
+      </div>
+      <div class="ctrl-row">
+        <button class="ctrl-btn" onclick="deskTogglePlay()" id="d-pp-btn"><div class="sm-play-icon"></div></button>
+        <div class="vol-group">
+          <span class="vol-icon">🔊</span>
+          <input type="range" class="vol-slider" min="0" max="1" step="0.05" value="0.8" oninput="document.getElementById('d-video').volume=this.value">
+        </div>
+        <button class="fullscreen-btn" onclick="document.getElementById('d-video').requestFullscreen()">⛶</button>
+      </div>
+    </div>
+    <div class="mem-details">
+      <div class="detail-title-row">
+        <p class="mem-title-lg" id="d-detail-title">${m.name}</p>
+        <button class="rename-btn-sm" onclick="openRename(${m.id})">✎ Rename</button>
+      </div>
+      <p class="mem-datetime">${fmtDate(m.created_at)} · ${fmtTime(m.created_at)}</p>
+      <p class="detail-label" style="margin-top:14px">ALBUM</p>
+      <div class="album-chips" id="d-album-chips"></div>
+    </div>`;
+
+  renderDesktopAlbumChips(m);
+  const vid = document.getElementById('d-video');
+  vid.volume = 0.8;
+  vid.addEventListener('loadedmetadata', () => {
+    document.getElementById('d-time-dur').textContent = fmt(vid.duration);
+  });
+  vid.addEventListener('timeupdate', () => {
+    const pf = document.getElementById('d-prog-fill');
+    const tc = document.getElementById('d-time-cur');
+    if (!pf || !tc) return;
+    pf.style.width = (vid.currentTime / vid.duration * 100).toFixed(2) + '%';
+    tc.textContent = fmt(vid.currentTime);
+  });
+  vid.addEventListener('ended', () => {
+    const overlay = document.getElementById('d-big-play-overlay');
+    if (overlay) overlay.style.opacity = '1';
+    const btn = document.getElementById('d-pp-btn');
+    if (btn) btn.innerHTML = '<div class="sm-play-icon"></div>';
+  });
+  vid.addEventListener('play', () => {
+    const overlay = document.getElementById('d-big-play-overlay');
+    if (overlay) overlay.style.opacity = '0';
+    const btn = document.getElementById('d-pp-btn');
+    if (btn) btn.innerHTML = '<div class="sm-pause"><span></span><span></span></div>';
+  });
+  vid.addEventListener('pause', () => {
+    const overlay = document.getElementById('d-big-play-overlay');
+    if (overlay) overlay.style.opacity = '1';
+    const btn = document.getElementById('d-pp-btn');
+    if (btn) btn.innerHTML = '<div class="sm-play-icon"></div>';
+  });
+
+  // Right panel
+  const right = document.getElementById('d-right-panel');
+  right.innerHTML = `
+    <div class="map-section">
+      <p class="panel-label">LOCATION</p>
+      ${m.lat != null ? `<div class="map-box" id="d-leaflet-map"></div>` : noGpsHtml(false)}
+      <div class="coords-grid">
+        <div class="coord-card"><p>LATITUDE</p><p>${m.lat != null ? Number(m.lat).toFixed(6) : '—'}</p></div>
+        <div class="coord-card"><p>LONGITUDE</p><p>${m.lng != null ? Number(m.lng).toFixed(6) : '—'}</p></div>
+      </div>
+    </div>
+    <div class="all-clips">
+      <p class="panel-label" style="margin-bottom:10px">ALL CLIPS</p>
+      <div class="mini-grid" id="d-mini-grid"></div>
+    </div>`;
+
+  if (m.lat != null && m.lng != null) {
+    buildLeafletMap('d-leaflet-map', m.lat, m.lng);
+  }
+
+  const mg = document.getElementById('d-mini-grid');
+  memories.forEach(mem => {
+    const mc = document.createElement('div');
+    mc.className = 'mini-card' + (mem.id === m.id ? ' active' : '');
+    mc.innerHTML = `<video src="${mem.videoUrl}" preload="none" muted></video><div class="mini-play"></div>`;
+    mc.onclick = () => selectMemory(mem);
+    mg.appendChild(mc);
+  });
+}
+
+function deskTogglePlay() {
+  const vid = document.getElementById('d-video');
+  if (!vid) return;
+  vid.paused ? vid.play() : vid.pause();
+}
+
+function deskScrub(e) {
+  const vid = document.getElementById('d-video');
+  if (!vid || !vid.duration) return;
+  const pct = Math.max(0, Math.min(1, e.offsetX / e.currentTarget.offsetWidth));
+  vid.currentTime = pct * vid.duration;
+}
+
+function renderDesktopAlbumChips(m) {
+  const container = document.getElementById('d-album-chips');
+  if (!container) return;
+  container.innerHTML = '';
+  albums.forEach(a => {
+    const chip = document.createElement('div');
+    chip.className = 'album-chip' + (m.album === a ? ' selected' : '');
+    chip.textContent = a;
+    chip.onclick = () => { m.album = m.album === a ? null : a; saveLocal(); renderDesktopAlbumChips(m); renderSidebar(); };
+    container.appendChild(chip);
+  });
+}
+
+// ══════════════════════════════════════════════════════
+// MOBILE
+// ══════════════════════════════════════════════════════
+function renderMobileTabs() {
+  const tabs = document.getElementById('m-album-tabs');
+  tabs.innerHTML = '';
+  const allT = document.createElement('div');
+  allT.className = 'h-tab' + (activeAlbum === 'All' ? ' active' : '');
+  allT.textContent = 'All';
+  allT.onclick = () => { activeAlbum = 'All'; renderMobileTabs(); renderFeed(); };
+  tabs.appendChild(allT);
+  albums.forEach(a => {
+    const t = document.createElement('div');
+    t.className = 'h-tab' + (activeAlbum === a ? ' active' : '');
+    t.innerHTML = `${a} <span class="h-tab-del" onclick="deleteAlbum(event,'${a}')">×</span>`;
+    t.onclick = (e) => { if(e.target.classList.contains('h-tab-del')) return; activeAlbum = a; renderMobileTabs(); renderFeed(); };
+    tabs.appendChild(t);
+  });
+}
+
+function renderFeed() {
+  const feed = document.getElementById('m-feed');
+  const vis = visibleMemories();
+  updateCount();
+  feed.innerHTML = '';
+  vis.forEach(m => {
+    const card = document.createElement('div');
+    card.className = 'memory-card';
+    const coordsTxt = m.lat != null ? `${Number(m.lat).toFixed(4)}, ${Number(m.lng).toFixed(4)}` : null;
+    card.innerHTML = `
+      <div class="card-thumb" onclick="openMobModal(${m.id})">
+        <video src="${m.videoUrl}" preload="metadata" muted playsinline></video>
+        <div class="thumb-overlay"></div>
+        <div class="thumb-play-btn"><div class="thumb-play-tri"></div></div>
+        <span class="dur-tag" id="dur-${m.id}">—</span>
+      </div>
+      <div class="card-info">
+        <div class="card-title-row">
+          <span class="card-title">${m.name}</span>
+          <button class="rename-btn-inline" onclick="openRename(${m.id})">✎</button>
+        </div>
+        <div class="card-meta">
+          <span class="card-time">${fmtDate(m.created_at)} · ${fmtTime(m.created_at)}</span>
+          ${coordsTxt ? `<span class="card-coords">${coordsTxt}</span>` : `<span class="card-coords-null">No GPS</span>`}
+        </div>
+      </div>`;
+    feed.appendChild(card);
+    // Lazy-load duration
+    const vid = card.querySelector('video');
+    vid.addEventListener('loadedmetadata', () => {
+      const tag = document.getElementById('dur-' + m.id);
+      if (tag) tag.textContent = fmt(vid.duration);
+    });
+  });
+}
+
+function openMobModal(id) {
+  mobMemory = memories.find(m => m.id === id);
+  if (!mobMemory) return;
+  const m = mobMemory;
+
+  const vid = document.getElementById('mob-video');
+  vid.src = m.videoUrl;
+  vid.volume = 0.8;
+  vid.currentTime = 0;
+
+  document.getElementById('mob-title').textContent = m.name;
+  document.getElementById('mob-dt').textContent = fmtDate(m.created_at) + ' · ' + fmtTime(m.created_at);
+  document.getElementById('mob-time-cur').textContent = '0:00';
+  document.getElementById('mob-time-dur').textContent = '—';
+  document.getElementById('mob-prog-fill').style.width = '0%';
+  document.getElementById('mob-pp-icon').innerHTML = '<div class="mob-sm-play"></div>';
+  document.getElementById('mob-big-play').style.opacity = '1';
+
+  document.getElementById('mob-lat').textContent = m.lat != null ? Number(m.lat).toFixed(6) : '—';
+  document.getElementById('mob-lng').textContent = m.lng != null ? Number(m.lng).toFixed(6) : '—';
+
+  // Map
+  const mapCont = document.getElementById('mob-map-container');
+  mapCont.innerHTML = '';
+  if (m.lat != null && m.lng != null) {
+    mapCont.innerHTML = '<div class="mob-map-box" id="mob-leaflet-map"></div>';
+    setTimeout(() => buildLeafletMap('mob-leaflet-map', m.lat, m.lng), 50);
+  } else {
+    mapCont.innerHTML = noGpsHtml(true);
+  }
+
+  // Album chips
+  const chips = document.getElementById('mob-album-chips');
+  chips.innerHTML = '';
+  albums.forEach(a => {
+    const chip = document.createElement('div');
+    chip.className = 'mob-album-chip' + (m.album === a ? ' selected' : '');
+    chip.textContent = a;
+    chip.onclick = () => { m.album = m.album === a ? null : a; saveLocal(); openMobModal(m.id); renderFeed(); };
+    chips.appendChild(chip);
+  });
+
+  // Video events
+  vid.onloadedmetadata = () => {
+    document.getElementById('mob-time-dur').textContent = fmt(vid.duration);
+  };
+  vid.ontimeupdate = () => {
+    if (!vid.duration) return;
+    document.getElementById('mob-prog-fill').style.width = (vid.currentTime / vid.duration * 100).toFixed(2) + '%';
+    document.getElementById('mob-time-cur').textContent = fmt(vid.currentTime);
+  };
+  vid.onplay = () => {
+    document.getElementById('mob-big-play').style.opacity = '0';
+    document.getElementById('mob-pp-icon').innerHTML = '<div class="sm-pause"><span></span><span></span></div>';
+  };
+  vid.onpause = () => {
+    document.getElementById('mob-big-play').style.opacity = '1';
+    document.getElementById('mob-pp-icon').innerHTML = '<div class="mob-sm-play"></div>';
+  };
+  vid.onended = () => {
+    document.getElementById('mob-big-play').style.opacity = '1';
+    document.getElementById('mob-pp-icon').innerHTML = '<div class="mob-sm-play"></div>';
+  };
+
+  document.getElementById('mob-modal').classList.add('open');
+}
+
+function closeMobModal() {
+  const vid = document.getElementById('mob-video');
+  vid.pause(); vid.src = '';
+  document.getElementById('mob-modal').classList.remove('open');
+  // Destroy leaflet map
+  if (leafletMaps['mob-leaflet-map']) {
+    leafletMaps['mob-leaflet-map'].remove();
+    delete leafletMaps['mob-leaflet-map'];
+  }
+}
+
+function mobTogglePlay() {
+  const vid = document.getElementById('mob-video');
+  if (!vid) return;
+  vid.paused ? vid.play() : vid.pause();
+}
+
+function mobScrub(e) {
+  const vid = document.getElementById('mob-video');
+  if (!vid || !vid.duration) return;
+  const pct = Math.max(0, Math.min(1, e.offsetX / e.currentTarget.offsetWidth));
+  vid.currentTime = pct * vid.duration;
+}
+
+// ══════════════════════════════════════════════════════
+// ALBUMS
+// ══════════════════════════════════════════════════════
+function deleteAlbum(e, name) {
+  e.stopPropagation();
+  albums = albums.filter(a => a !== name);
+  memories.forEach(m => { if (m.album === name) m.album = null; });
+  if (activeAlbum === name) activeAlbum = 'All';
+  saveLocal();
+  if (window.innerWidth < 768) { renderMobileTabs(); renderFeed(); }
+  else { renderDesktopAlbumTabs(); renderSidebar(); }
+}
+
+function openNewAlbum() {
+  document.getElementById('album-input').value = '';
+  document.getElementById('album-overlay').classList.add('open');
+  setTimeout(() => document.getElementById('album-input').focus(), 100);
+}
+function closeNewAlbum() { document.getElementById('album-overlay').classList.remove('open'); }
+function saveNewAlbum() {
+  const val = document.getElementById('album-input').value.trim();
+  if (val && !albums.includes(val)) {
+    albums.push(val);
+    saveLocal();
+    if (window.innerWidth < 768) { renderMobileTabs(); }
+    else { renderDesktopAlbumTabs(); }
+    // Re-render chips if a memory is open
+    if (activeMemory) renderDesktopAlbumChips(activeMemory);
+  }
+  closeNewAlbum();
+}
+
+// ══════════════════════════════════════════════════════
+// RENAME
+// ══════════════════════════════════════════════════════
+let renamingId = null;
+function openRename(id) {
+  renamingId = id;
+  const m = memories.find(x => x.id === id);
+  document.getElementById('rename-input').value = m ? m.name : '';
+  document.getElementById('rename-overlay').classList.add('open');
+  setTimeout(() => document.getElementById('rename-input').focus(), 100);
+}
+function openRenameFromModal() {
+  if (mobMemory) openRename(mobMemory.id);
+}
+function closeRename() {
+  document.getElementById('rename-overlay').classList.remove('open');
+  renamingId = null;
+}
+function saveRename() {
+  const val = document.getElementById('rename-input').value.trim();
+  if (val && renamingId) {
+    const m = memories.find(x => x.id === renamingId);
+    if (m) {
+      m.name = val; m._customName = val;
+      saveLocal();
+      // Update any visible title
+      const dt = document.getElementById('d-detail-title');
+      if (dt && activeMemory && activeMemory.id === renamingId) dt.textContent = val;
+      const mt = document.getElementById('mob-title');
+      if (mt && mobMemory && mobMemory.id === renamingId) mt.textContent = val;
+      if (window.innerWidth < 768) renderFeed();
+      else renderSidebar();
+    }
+  }
+  closeRename();
+}
+
+// ══════════════════════════════════════════════════════
+// KEYBOARD
+// ══════════════════════════════════════════════════════
+document.getElementById('rename-input').addEventListener('keydown', e => { if(e.key==='Enter') saveRename(); if(e.key==='Escape') closeRename(); });
+document.getElementById('album-input').addEventListener('keydown', e => { if(e.key==='Enter') saveNewAlbum(); if(e.key==='Escape') closeNewAlbum(); });
+
+// Close mobile modal on backdrop click
+document.getElementById('mob-modal').addEventListener('click', function(e) { if(e.target===this) closeMobModal(); });
+
+// ══════════════════════════════════════════════════════
+// RESPONSIVE SWITCH
+// ══════════════════════════════════════════════════════
+let currentMode = null;
+function checkMode() {
+  const mobile = window.innerWidth < 768;
+  const mode = mobile ? 'mobile' : 'desktop';
+  if (mode === currentMode) return;
+  currentMode = mode;
+  if (memories.length === 0) return;
+  document.getElementById('desktop-layout').style.display = mobile ? 'none' : 'grid';
+  document.getElementById('mobile-layout').style.display = mobile ? 'flex' : 'none';
+  if (mobile) { renderMobileTabs(); renderFeed(); }
+  else { renderDesktopAlbumTabs(); renderSidebar(); }
+}
+window.addEventListener('resize', checkMode);
+
+// ══════════════════════════════════════════════════════
+// BOOT
+// ══════════════════════════════════════════════════════
+loadMemories();
+</script>
+</body>
+</html>
